@@ -104,11 +104,16 @@ There are a few unused PROCedures in there, which I've left as they may come in 
 2. `PROCcreateSubdirsAsRequired` was used to create additional subdirectories if a DDOS filename had later "." in it - but caused issues if a file also existed with out extra "." and then clashed with the folder. Resorted to replacing "." with "-" instead elsewhere and not using this.
 
 ## Work-arounds / oddities
+Any issues I encountered are covered here.
+
+### ADFS locking up
 Oddly, when using `*LOAD` in DDOS, then calling `*ADFS` to switch filing systems caused ADFS to lock solid - `ESCAPE` didn't work, had to use `BREAK`. This was circumvented by using `OPENIN` in BASIC and then `OSGBPB` to read the raw data - which has the advantage of being able to read a block of data from anywhere in the file. System tested with:
 
 ROM | Version
 -|-
-Opus DDOS |
-ADFS | 
+Opus DDOS | 1.01
+ADFS | 1.50
+MOS | 3.20
 
-`OSGBPB` enabled me to chunk large files - if the data wouldn't fit in memory, then it could be loaded and saved in multiple passes. `HIMEM` was set to be `LOMEM+&1800` - I have use way more memory than necessary due to long variable names. The code should be legible also neat'n'tidy with `LOCAL` variables - but that comes with a memory overhead.
+### Files too large for available memory
+The switch to `OSGBPB` enabled me to chunk large files - if the data wouldn't fit in memory, then it could be loaded and saved in multiple passes. `HIMEM` was set to be `LOMEM+&1800`; I have use way more memory than necessary due to long variable names. The code should be legible also neat'n'tidy with `LOCAL` variables - but that comes with a memory overhead. However, this just means more files need multiple passes; given its an automated disc-to-discs process, this has little impact.
