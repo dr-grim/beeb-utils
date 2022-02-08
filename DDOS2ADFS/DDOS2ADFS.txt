@@ -1,0 +1,259 @@
+   10  REM DDOS2ADFS - Copy Opus DDOS 720k to ADFS 640k
+   20  
+   30  REM v0.9 - first draft, needs testing
+   40  
+   50  REM log levels: 0=quiet, 1=headlines, 2=detail
+   60  logLevel% = 1
+   70  
+   80  MODE 128
+   90  
+  100  OSWORD = &FFF1
+  110  OSGBPB = &FFD1
+  120  DIM fileNames$(30), loadAddresses%(30), execAddresses%(30), lengths%(30)
+  130  DIM directoryNames$(30), fileLocks%(30), volumePresent%(7)
+  140  volumeTitle$ = ""
+  150  currentFS$ = ""
+  160  DIM oswordScratch% 32, rawSectorData% &0200
+  170  rawSectorA% = rawSectorData%
+  180  rawSectorB% = rawSectorData% + &0100
+  190  
+  200  IF HIMEM <> &8000 THEN PRINT "HIMEM=&";~HIMEM;" - already moved; reset to default and rerun":END
+  210  memoryEndAddress% = HIMEM
+  220  memoryStartAddress% = LOMEM + &1800
+  230  HIMEM = memoryStartAddress%
+  240  maxFileSize% = memoryEndAddress% - memoryStartAddress%
+  250  
+  260  FOR driveNumber% = 0 TO 2 STEP 2
+  270  PRINT
+  280  PRINT "=============================="
+  290  PRINT "Drive ";driveNumber%
+  300  PRINT "=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-"
+  310  PROCreadOpusVolumes(driveNumber%)
+  320  FOR volumeNumber% = 0 TO 7
+  330  IF volumePresent%(volumeNumber%) THEN PROCcopyVolume(driveNumber%, volumeNumber%)
+  340  NEXT
+  350  NEXT
+  360  END
+  370  
+  380  DEF PROCreadOpusVolumes(driveNumber%)
+  390  PROCsetFS("DISC")
+  400  IF logLevel% > 1 THEN PRINT "Reading DDOS volume list"
+  410  PROCreadSector(driveNumber%, 0, 16, 1) : REM get DDOS volumes
+  420  FOR volumeNumber% = 0 TO 7
+  430  volumePresent%(volumeNumber%) = (rawSectorA%?(&08 + 2*volumeNumber%) <> 0)
+  440  NEXT
+  450  ENDPROC
+  460  
+  470  DEF PROCcopyVolume(driveNumber%, volumeNumber%)
+  480  LOCAL driveName$, fileIndex%, directoryName$, fileName$
+  490  LOCAL sourceFileName$, targetFileName$
+  500  LOCAL numChunks%, chunk%, length%, fileOffset%, dataRemaining%
+  510  
+  520  driveName$ = FNdriveName(driveNumber%, volumeNumber%)
+  530  IF logLevel% > 0 THEN PRINT "Copying drive ";driveName$;" to "":0.$.";driveName$;""""
+  540  PROCsetFS("ADFS")
+  550  PROCadfsCdir(driveName$)
+  560  PROCsetFS("DISC")
+  570  numFiles% = FNreadCatalogue(driveNumber%, volumeNumber%)
+  580  IF numFiles% = 0 THEN ENDPROC
+  590  
+  600  directoriesCreated$ = "$"
+  610  FOR fileIndex% = 0 TO numFiles%-1
+  620  directoryName$ = directoryNames$(fileIndex%)
+  630  fileName$ = fileNames$(fileIndex%)
+  640  IF INSTR(directoriesCreated$, directoryName$) = 0 THEN PROCadfsCdir(driveName$+"."+directoryName$):directoriesCreated$=directoriesCreated$+directoryName$
+  650  IF INSTR(fileName$, ".") THEN targetFileName$ = FNfilteredFileName(fileName$) ELSE targetFileName$ = fileName$
+  660  IF directoryName$ <> "$" THEN targetFileName$ = directoryName$ + "." + targetFileName$
+  670  targetFileName$ = ":0.$." + driveName$ + "." + targetFileName$
+  680  
+  690  sourceFileName$ = ":"+driveName$+"."+directoryName$+"."+fileName$
+  700  
+  710  length% = lengths%(fileIndex%)
+  720  numChunks% = length% DIV maxFileSize%
+  730  IF length% MOD maxFileSize% > 0 THEN numChunks% = numChunks% + 1
+  740  fileOffset% = 0
+  750  dataRemaining% = length%
+  760  
+  770  IF logLevel% > 0 THEN PRINT "Copying """;sourceFileName$;""" to """;targetFileName$;""" in ";numChunks%;" chunk(s)"
+  780  FOR chunk%=1 TO numChunks%
+  790  IF dataRemaining% < maxFileSize% THEN chunkLength% = dataRemaining% ELSE chunkLength% = maxFileSize%
+  800  PROCsetFS("DISC")
+  810  PROCloadData(sourceFileName$, memoryStartAddress%, chunkLength%, fileOffset%)
+  820  
+  830  PROCsetFS("ADFS")
+  840  IF chunk% = 1 THEN saveCommand$ = "*SAVE """ + targetFileName$ + """ " + STR$~(memoryStartAddress%) + " +" + STR$~(chunkLength%) + " " + STR$~(loadAddresses%(fileIndex%)) + " " + STR$~(execAddresses%(fileIndex%))
+  850  IF chunk% = 1 AND logLevel% > 1 THEN PRINT saveCommand$
+  860  IF chunk% = 1 THEN OSCLI(saveCommand$) ELSE PROCsaveData(targetFileName$, memoryStartAddress%, chunkLength%, fileOffset%)
+  870  
+  880  fileOffset% = fileOffset% + chunkLength%
+  890  dataRemaining% = dataRemaining% - chunkLength%
+  900  NEXT
+  910  
+  920  NEXT
+  930  
+  940  IF logLevel% > 0 THEN PRINT "Folder "":0.$.";driveName$;""" title set to """;volumeTitle$;""""
+  950  oscliDirChange$ = "*DIR :0.$." + driveName$
+  960  IF logLevel% > 1 THEN PRINT oscliDirChange$
+  970  OSCLI(oscliDirChange$)
+  980  IF volumeTitle$ = "" THEN oscliSetTitle$ = "*TITLE" ELSE oscliSetTitle$ = "*TITLE """ + volumeTitle$ + """"
+  990  IF logLevel% > 1 THEN PRINT oscliSetTitle$
+ 1000  OSCLI(oscliSetTitle$)
+ 1010  IF logLevel% > 1 THEN PRINT "*DIR :0.$"
+ 1020  OSCLI("*DIR 0.$") : REM back to root folder
+ 1030  
+ 1040  PRINT "------------------------------"
+ 1050  ENDPROC
+ 1060  
+ 1070  DEF PROCcreateSubdirsAsRequired(driveName$, directoryName$, fileName$)
+ 1080  LOCAL subDir$, trailingDir$
+ 1090  IF directoryName$ = "$" THEN trailingDir$ = "" ELSE trailingDir$=directoryName$+"."
+ 1100  subDir$ = LEFT$(fileName$, INSTR(fileName$, ".")-1)
+ 1110  PROCadfsCdir(driveName$+"."+trailingDir$+subDir$)
+ 1120  ENDPROC
+ 1130  
+ 1140  DEF FNdriveName(drive%, volume%)
+ 1150  = CHR$(ASC("0") + drive%) + CHR$(ASC("A") + volume%)
+ 1160  
+ 1170  DEF FNreadCatalogue(driveNumber%, volumeNumber%)
+ 1180  IF logLevel% > 1 THEN PRINT "Reading catalogue for drive ";FNdriveName(driveNumber%,volumeNumber%)
+ 1190  
+ 1200  PROCreadSector(driveNumber%, 0, volumeNumber%*2, 2)
+ 1210  volumeTitle$ = FNstringFromMemory(rawSectorA%, 8) + FNstringFromMemory(rawSectorB%, 4)
+ 1220  IF logLevel% > 0 THEN PRINT "Volume title: """;volumeTitle$;""""
+ 1230  numEntries% = (rawSectorB%?&05) / 8
+ 1240  IF logLevel% > 1 THEN PRINT "Number of files: ";numEntries%
+ 1250  
+ 1260  FOR fileIndex% = 0 TO numEntries%-1
+ 1270  fileNames$(fileIndex%) = FNstringFromMemory(rawSectorA% + &08 + &08*fileIndex%, 7)
+ 1280  fileNames$(fileIndex%) = FNtrimTrailingSpaces(fileNames$(fileIndex%))
+ 1290  directoryNames$(fileIndex%) = CHR$(rawSectorA%?(&08 + &08*fileIndex% + 7) AND &7F)
+ 1300  fileLocks%(fileIndex%) = rawSectorA%?(&08 + &08*fileIndex% + 7) > &7F
+ 1310  highWordFlags% = rawSectorB%?(&08 + 8*fileIndex% + 6)
+ 1320  loadAddresses%(fileIndex%) = FNword(rawSectorB% + (&08 + 8*fileIndex% + 0)) + FNhighProcessorWord(highWordFlags%, &03)
+ 1330  execAddresses%(fileIndex%) = FNword(rawSectorB% + (&08 + 8*fileIndex% + 2)) + FNhighProcessorWord(highWordFlags%, &0C)
+ 1340  lengths%(fileIndex%) = FNword(rawSectorB% + (&08 + 8*fileIndex% + 4)) + FNhighProcessorWord(highWordFlags%, &30)
+ 1350  NEXT
+ 1360  = numEntries%
+ 1370  
+ 1380  DEF PROCprintFileCatalogue
+ 1390  fileIndex% = 0
+ 1400  REPEAT
+ 1410  IF fileIndex% < numEntries% THEN PRINT FNfileInfoAsString(fileIndex%)
+ 1420  fileIndex% = fileIndex% + 1
+ 1430  UNTIL fileIndex% > numEntries%
+ 1440  ENDPROC
+ 1450  
+ 1460  DEF FNword(memory%)
+ 1470  = memory%?0 + memory%?1 * &0100
+ 1480  
+ 1490  DEF FNhighProcessorWord(byte%, mask%)
+ 1500  IF (byte% AND mask%) <> 0 THEN =&FFFF0000 ELSE =&00000000
+ 1510  
+ 1520  DEF FNtrimTrailingSpaces(string$)
+ 1530  LOCAL trimmedString$
+ 1540  trimmedString$ = string$
+ 1550  REPEAT
+ 1560  IF RIGHT$(trimmedString$, 1) = " " THEN trimmedString$ = LEFT$(trimmedString$, LEN(trimmedString$)-1)
+ 1570  UNTIL RIGHT$(trimmedString$, 1) <> " " OR LEN(trimmedString$) = 0
+ 1580  =trimmedString$
+ 1590  
+ 1600  DEF FNfileInfoAsString(fileIndex%)
+ 1610  LOCAL info$, lock$
+ 1620  paddedFileName$ = fileNames$(fileIndex%) + STRING$(7-LEN(fileNames$(fileIndex%)), " ")
+ 1630  info$ = directoryNames$(fileIndex%) + "." + paddedFileName$ + " "
+ 1640  IF fileLocks%(fileIndex%) THEN lock$ = "L" ELSE lock$ = " "
+ 1650  info$ = info$ + lock$
+ 1660  info$ = info$ + " " + FNaddressToHexString(loadAddresses%(fileIndex%))
+ 1670  info$ = info$ + " " + FNaddressToHexString(execAddresses%(fileIndex%))
+ 1680  info$ = info$ + " " + FNaddressToHexString(lengths%(fileIndex%))
+ 1690  = info$
+ 1700  
+ 1710  DEF FNaddressToHexString(address%)
+ 1720  LOCAL hex$
+ 1730  hex$ = STR$~address%
+ 1740  hex$ = STRING$(8-LEN(hex$), "0") + hex$
+ 1750  =hex$
+ 1760  
+ 1770  DEF PROCreadSector(drive%, track%, sector%, numSectors%)
+ 1780  oswordScratch%?0 = drive%
+ 1790  oswordScratch%!1 = rawSectorData%
+ 1800  oswordScratch%?5 = 3
+ 1810  oswordScratch%?6 = &13 : REM read data command
+ 1820  oswordScratch%?7 = track%
+ 1830  oswordScratch%?8 = sector% : REM start sector number
+ 1840  oswordScratch%?9 = (1 * &20) + numSectors% : REM length type 1 (256 byte)
+ 1850  A% = &7F
+ 1860  X% = oswordScratch% MOD &0100
+ 1870  Y% = oswordScratch% DIV &0100
+ 1880  CALL OSWORD
+ 1890  ENDPROC
+ 1900  
+ 1910  REM "length%" is inclusive, so "length%=2" will return 2 characters
+ 1920  DEF FNstringFromMemory(baseAddress%, length%)
+ 1930  LOCAL string$, offset%, char$
+ 1940  string$ = ""
+ 1950  offset% = 0
+ 1960  REPEAT
+ 1970  char$ = CHR$(baseAddress%?offset%)
+ 1980  IF char$ <> CHR$(0) THEN string$ = string$ + char$
+ 1990  offset% = offset% + 1
+ 2000  UNTIL char$=CHR$(0) OR offset% = length%
+ 2010  = string$
+ 2020  
+ 2030  DEF PROCsetFS(fs$)
+ 2040  IF currentFS$ <> fs$ THEN currentFS$=fs$:OSCLI(fs$)
+ 2050  ENDPROC
+ 2060  
+ 2070  DEF PROCadfsCdir(dir$)
+ 2080  LOCAL oscliCDir$
+ 2090  PROCsetFS("ADFS")
+ 2100  oscliCDir$ = "*CDIR :0.$." + dir$
+ 2110  IF logLevel% > 1 THEN PRINT oscliCDir$
+ 2120  OSCLI(oscliCDir$)
+ 2130  ENDPROC
+ 2140  
+ 2150  DEF FNfilteredFileName(fileName$)
+ 2160  LOCAL filteredFileName$
+ 2170  FOR char% = 1 TO LEN(fileName$)
+ 2180  char$ = MID$(fileName$, char%, 1)
+ 2190  IF char$ = "." THEN char$="-"
+ 2200  filteredFileName$ = filteredFileName$ + char$
+ 2210  NEXT
+ 2220  =filteredFileName$
+ 2230  
+ 2240  DEF PROCloadData(fullFileName$, memoryAddress%, length%, fileOffset%)
+ 2250  LOCAL fileHandle%
+ 2260  REM loadCommand$ = "*LOAD """ + fullFileName$ + """ " + STR$~(memoryAddress%)
+ 2270  REM PRINT loadCommand$
+ 2280  REM OSCLI(loadCommand$)
+ 2290  IF logLevel% > 1 THEN PRINT " => Loading """;fullFileName$;""" &";~length%" bytes at offset &";~fileOffset%;" to &";~memoryAddress%
+ 2300  DIM params% &10
+ 2310  fileHandle%=OPENIN(fullFileName$)
+ 2320  params%?0 = fileHandle%
+ 2330  params%!1 = memoryAddress%
+ 2340  params%!5 = length%
+ 2350  params%!9 = fileOffset%
+ 2360  A%=3 : REM mode = read bytes
+ 2370  X% = params% MOD &100
+ 2380  Y% = params% DIV &100
+ 2390  CALL OSGBPB
+ 2400  REM ...check error condition?
+ 2410  CLOSE#fileHandle%
+ 2420  ENDPROC
+ 2430  
+ 2440  DEF PROCsaveData(fullFileName$, memoryAddress%, length%, fileOffset%)
+ 2450  LOCAL fileHandle%
+ 2460  IF logLevel% > 1 THEN PRINT " => Writing """;fullFileName$;""" &";~length%;" bytes at offset &";~fileOffset%;" from &";~memoryAddress%
+ 2470  DIM params% &10
+ 2480  fileHandle%=OPENUP(fullFileName$)
+ 2490  params%?0 = fileHandle%
+ 2500  params%!1 = memoryAddress%
+ 2510  params%!5 = length%
+ 2520  params%!9 = fileOffset%
+ 2530  A%=1 : REM mode = write bytes
+ 2540  X% = params% MOD &100
+ 2550  Y% = params% DIV &100
+ 2560  CALL OSGBPB
+ 2570  REM ...check error condition?
+ 2580  CLOSE#fileHandle%
+ 2590  ENDPROC
