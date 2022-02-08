@@ -19,7 +19,7 @@ This enables a double-sided disc with up to 16 sub-volumes to be stored on a sin
 
 ## Code design
 The utility:
-1. Scans the DDOS sectors on track 0 to discover what DDOS drive volumes are populated
+1. Scans the DDOS sectors on track 0 to discover what DDOS drive volumes are allocated
 2. Scans each DDOS volume catalogue to read which files are present - and extract load & execution addresses, along with file length
 3. Uses `OSWORD &7F` to read sector data
 4. Uses `OSGBPB 1` and `OSGBPB 3` to read and write chunks of data
