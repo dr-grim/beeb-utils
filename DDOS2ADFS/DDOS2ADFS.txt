@@ -99,7 +99,7 @@
   990  IF logLevel% > 1 THEN PRINT oscliSetTitle$
  1000  OSCLI(oscliSetTitle$)
  1010  IF logLevel% > 1 THEN PRINT "*DIR :0.$"
- 1020  OSCLI("*DIR 0.$") : REM back to root folder
+ 1020  OSCLI("*DIR :0.$") : REM back to root folder
  1030  
  1040  PRINT "------------------------------"
  1050  ENDPROC
@@ -257,3 +257,4 @@
  2570  REM ...check error condition?
  2580  CLOSE#fileHandle%
  2590  ENDPROC
+ 
