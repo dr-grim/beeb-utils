@@ -54,13 +54,18 @@ The utility:
 1. Switches to `ADFS` and uses `PROCadfsCdir` to create an appropriate subdirectory for the current volume number (viz volume 2 of drive 0 is `0B`, so on ADFS the directory `:0.$.0B` will be created)
 1. Switches back to DDOS, and reads the volume catalogue
 1. Iterates over all files in catalogue
-1. If a file has a directory that isn't `$`, then we create a subdirectory in ADFS to match (unless we've already done this - `directoriesCreated$` keeps tabs)
+1. If a file has a directory that isn't `$`, then we create a subdirectory in ADFS to match (unless we've already done this - `directoriesCreated$` keeps tabs). Adds the alternative cased copy of the letter to `directoriesCreated$` if required.
 1. `numChunks%` calculated to see if we need more than 1 pass to copy the file through memory (`maxFileSize%` used)
 1. Switch to DDOS (`*DISC`)
 1. `PROCloadData` used to read from DDOS (whole file or a chunk); **NOTE** this was also needed as using `*LOAD` would cause ADFS to fail to initialise
 1. Switch to ADFS (`*ADFS`)
 1. If this is the first chunk, `*SAVE` is used to store to ADFS - as this will set execution and load addresses; otherwise `PROCsaveData` is used (inverse of `PROCloadData`)
 1. Once all files have been copied from the volume, the volume's title is used to set the equivalent ADFS folder's title
+
+### FNupperAndLowerCase(s$)
+If a string is a letter, returns its alternative case with the original string. Otherwise just returns the original string unmodified.
+
+Useful when noting what letters have already been used to create folders.
 
 ### FNdriveName(drive%, volume%)
 Returns a 2 character string for a DDOS volume such as `0H`.
